@@ -6,400 +6,258 @@
 #include <vector>
 #include <iostream>
 #include <cmath>
-#include <cstdlib>
-#include <ctime>
-#include <iomanip>
-#include <thread>
-#include <chrono>
-#include <fstream>
-#include <complex>
 #include <random>
+#include <algorithm>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
 using namespace glm;
 using namespace std;
 
-// Constants
-const float a0 = 1;
-const float electron_r = 0.25f; // Will be used as radius for ray-traced spheres
-const double hbar = 1;
-const double m_e = 1;
-const double zmSpeed = 10.0;
+// Physics Constants
+const float a0 = 1.0f;
+const double hbar = 1.0;
+const double m_e = 1.0;
 
-//orbital stats
-
-int N = 100000;
-float LightingScaler = 700;
-float n = 3; float l = 1; float m = 1;
-
-//Physics Sampling
+// Simulation State
+int N = 50000; // Balanced for CPU/iGPU real-time simulation
+int n = 3;
+int l = 1;
+int m = 1;
 
 struct Particle {
     vec3 pos;
     vec3 vel = vec3(0.0f);
     vec4 color;
-    Particle(vec3 p, vec4 c = vec4(0.0f, 0.5f, 1.0f, 1.0f)) : pos(p), color(c){}
+    Particle(vec3 p, vec4 c) : pos(p), color(c) {}
 };
+
 vector<Particle> particles;
+random_device rd;
+mt19937 gen(rd());
 
-//random devices
+// Quantum Mechanical Sampling Functions (Dynamic CDFs)
+double sampleR(int n, int l, mt19937& rng) {
+    const int SAMPLES = 2048;
+    const double rMax = 12.0 * n * n * a0;
+    vector<double> cdf(SAMPLES);
+    double dr = rMax / (SAMPLES - 1);
+    double sum = 0.0;
 
-random_device rd; mt19937 gen(rd()); uniform_real_distribution<float> dis(0.0f, 1.0f);
+    for (int i = 0; i < SAMPLES; ++i) {
+        double r = i * dr;
+        double rho = 2.0 * r / (n * a0);
 
-//sample R
+        int k = n - l - 1;
+        int alpha = 2 * l + 1;
 
-double sampleR(int n, int l, mt19937& gen) {
-    const int N = 4096;
-    //const double a0 = 1.0;
-    const double rMax = 10.0 * n * n * a0;
-
-    static vector<double> cdf;
-    static bool built = false;
-
-    if (!built) {
-        cdf.resize(N);
-        double dr = rMax / (N - 1);
-        double sum = 0.0;
-
-        for (int i = 0; i < N; ++i) {
-            double r = i * dr;
-            double rho = 2.0 * r / (n * a0);
-
-            // Associated Laguerre L_{n-l-1}^{2l+1}(rho)
-            int k = n - l - 1;
-            int alpha = 2 * l + 1;
-
-            double L = 1.0, Lm1 = 1.0 + alpha - rho;
-            if (k == 1) L = Lm1;
-            else if (k > 1) {
-                double Lm2 = 1.0;
-                for (int j = 2; j <= k; ++j) {
-                    L = ((2*j - 1 + alpha - rho) * Lm1 -
-                         (j - 1 + alpha) * Lm2) / j;
-                    Lm2 = Lm1;
-                    Lm1 = L;
-                }
+        double L = 1.0, Lm1 = 1.0 + alpha - rho;
+        if (k == 1) L = Lm1;
+        else if (k > 1) {
+            double Lm2 = 1.0;
+            for (int j = 2; j <= k; ++j) {
+                L = ((2 * j - 1 + alpha - rho) * Lm1 - (j - 1 + alpha) * Lm2) / j;
+                Lm2 = Lm1;
+                Lm1 = L;
             }
-
-            double norm = pow(2.0 / (n * a0), 3) * tgamma(n - l) / (2.0 * n * tgamma(n + l + 1));
-            double R = sqrt(norm) * exp(-rho / 2.0) * pow(rho, l) * L;
-
-            double pdf = r * r * R * R;
-            sum += pdf;
-            cdf[i] = sum;
         }
 
-        for (double& v : cdf) v /= sum;
-        built = true;
+        double norm = pow(2.0 / (n * a0), 3) * tgamma(n - l) / (2.0 * n * tgamma(n + l + 1));
+        double R = sqrt(norm) * exp(-rho / 2.0) * pow(rho, l) * L;
+        double pdf = r * r * R * R;
+        sum += pdf;
+        cdf[i] = sum;
     }
+
+    for (double& v : cdf) v /= (sum > 0.0 ? sum : 1.0);
 
     uniform_real_distribution<double> dis(0.0, 1.0);
-    double u = dis(gen);
-
+    double u = dis(rng);
     int idx = lower_bound(cdf.begin(), cdf.end(), u) - cdf.begin();
-    return idx * (rMax / (N - 1));
+    return idx * dr;
 }
 
-//sample Theta
+double sampleTheta(int l, int m_val, mt19937& rng) {
+    const int SAMPLES = 1024;
+    int abs_m = std::abs(m_val);
+    vector<double> cdf(SAMPLES);
+    double dtheta = M_PI / (SAMPLES - 1);
+    double sum = 0.0;
 
-double sampleTheta(int l, int m, mt19937& gen) {
-    const int N = 2048;
-    static vector<double> cdf;
-    static bool built = false;
+    for (int i = 0; i < SAMPLES; ++i) {
+        double theta = i * dtheta;
+        double x = cos(theta);
 
-    if (!built) {
-        cdf.resize(N);
-        double dtheta = M_PI / (N - 1);
-        double sum = 0.0;
-
-        for (int i = 0; i < N; ++i) {
-            double theta = i * dtheta;
-            double x = cos(theta);
-
-            // Associated Legendre P_l^m(x)
-            double Pmm = 1.0;
-            if (m > 0) {
-                double somx2 = sqrt((1.0 - x) * (1.0 + x));
-                double fact = 1.0;
-                for (int j = 1; j <= m; ++j) {
-                    Pmm *= -fact * somx2;
-                    fact += 2.0;
-                }
+        double Pmm = 1.0;
+        if (abs_m > 0) {
+            double somx2 = sqrt(std::max(0.0, (1.0 - x) * (1.0 + x)));
+            double fact = 1.0;
+            for (int j = 1; j <= abs_m; ++j) {
+                Pmm *= -fact * somx2;
+                fact += 2.0;
             }
-
-            double Plm;
-            if (l == m) {
-                Plm = Pmm;
-            } else {
-                double Pm1m = x * (2 * m + 1) * Pmm;
-                if (l == m + 1) {
-                    Plm = Pm1m;
-                } else {
-                    double Pll;
-                    for (int ll = m + 2; ll <= l; ++ll) {
-                        Pll = ((2 * ll - 1) * x * Pm1m -
-                               (ll + m - 1) * Pmm) / (ll - m);
-                        Pmm = Pm1m;
-                        Pm1m = Pll;
-                    }
-                    Plm = Pm1m;
-                }
-            }
-            double pdf = sin(theta) * Plm * Plm;
-            sum += pdf;
-            cdf[i] = sum;
         }
 
-        for (double& v : cdf) v /= sum;
-        built = true;
-    }
-
-    uniform_real_distribution<double> dis(0.0, 1.0);
-    double u = dis(gen);
-
-    int idx = lower_bound(cdf.begin(), cdf.end(), u) - cdf.begin();
-    return idx * (M_PI / (N - 1));
-}
-
-//sample phi
-
-float samplePhi(float n, float l, float m) {
-    return 2.0f * M_PI * dis(gen);
-}
-
-//calculate prob current
-
-vec3 calculateProbabilityFlow(Particle& p, int n, int l, int m) {
-    double r = length(p.pos);   if (r < 1e-6) return vec3(0.0f);
-    double theta = acos(p.pos.y / r); 
-    double phi = atan2(p.pos.z, p.pos.x); 
-
-
-    //Compute magnitude
-    double sinTheta = sin(theta);  if (abs(sinTheta) < 1e-4) sinTheta = 1e-4;
-    double v_mag = hbar * m / (m_e * r * sinTheta);
-
-    //Convert to Cartesian
-    double vx = -v_mag * sin(phi);
-    double vy = 0.0; 
-    double vz =  v_mag * cos(phi);
-
-    return vec3((float)vx, (float)vy, (float)vz);
-}
-vec4 inferno2(double r, double theta, double phi, int n, int l, int m)
-{
-    // radial part |R(r)|^2 
-    double rho = 2.0 * r / (n * a0);
-
-    int k = n - l - 1;
-    int alpha = 2 * l + 1;
-
-    double L = 1.0;
-    if (k == 1) {
-        L = 1.0 + alpha - rho;
-    } else if (k > 1) {
-        double Lm2 = 1.0;
-        double Lm1 = 1.0 + alpha - rho;
-        for (int j = 2; j <= k; ++j) {
-            L = ((2*j - 1 + alpha - rho) * Lm1 -
-                 (j - 1 + alpha) * Lm2) / j;
-            Lm2 = Lm1;
-            Lm1 = L;
-        }
-    }
-    double norm = pow(2.0 / (n * a0), 3)
-                * tgamma(n - l)
-                / (2.0 * n * tgamma(n + l + 1));
-
-    double R = sqrt(norm) * exp(-rho / 2.0) * pow(rho, l) * L;
-    double radial = R * R;
-
-    // angular part |P_l^m(cosθ)|^2
-    double x = cos(theta);
-
-    double Pmm = 1.0;
-    if (m > 0) {
-        double somx2 = sqrt((1.0 - x) * (1.0 + x));
-        double fact = 1.0;
-        for (int j = 1; j <= m; ++j) {
-            Pmm *= -fact * somx2;
-            fact += 2.0;
-        }
-    }
-    double Plm;
-    if (l == m) {
-        Plm = Pmm;
-    } else {
-        double Pm1m = x * (2*m + 1) * Pmm;
-        if (l == m + 1) {
-            Plm = Pm1m;
+        double Plm = Pmm;
+        if (l == abs_m) {
+            Plm = Pmm;
         } else {
-            for (int ll = m + 2; ll <= l; ++ll) {
-                double Pll = ((2*ll - 1) * x * Pm1m -
-                              (ll + m - 1) * Pmm) / (ll - m);
-                Pmm = Pm1m;
-                Pm1m = Pll;
+            double Pm1m = x * (2 * abs_m + 1) * Pmm;
+            if (l == abs_m + 1) {
+                Plm = Pm1m;
+            } else {
+                for (int ll = abs_m + 2; ll <= l; ++ll) {
+                    double Pll = ((2 * ll - 1) * x * Pm1m - (ll + abs_m - 1) * Pmm) / (ll - abs_m);
+                    Pmm = Pm1m;
+                    Pm1m = Pll;
+                }
+                Plm = Pm1m;
             }
-            Plm = Pm1m;
         }
+        double pdf = sin(theta) * Plm * Plm;
+        sum += pdf;
+        cdf[i] = sum;
     }
-    double angular = Plm * Plm;
 
-    double intensity = radial * angular;
+    for (double& v : cdf) v /= (sum > 0.0 ? sum : 1.0);
 
-    // log compression
-    double t = log10(intensity + 1e-12) + 12.0;
-    t /= 12.0;
-
-    t = std::clamp(t, 0.0, 1.0);
-
-    //  inferno-style ramp 
-    float rC = smoothstep(0.15f, 1.0f, static_cast<float>(t));
-    float gC = smoothstep(0.45f, 1.0f, static_cast<float>(t));
-    float bC = smoothstep(0.85f, 1.0f, static_cast<float>(t)) * 0.2f;
-
-    return vec4(rC, gC * 0.8f, bC, 1.0f);
+    uniform_real_distribution<double> dis(0.0, 1.0);
+    double u = dis(rng);
+    int idx = lower_bound(cdf.begin(), cdf.end(), u) - cdf.begin();
+    return idx * dtheta;
 }
 
 vec4 heatmap_fire(float value) {
-    // Ensure value is clamped between 0 and 1
-    value = std::max(0.0f, std::min(1.0f, value));
-
-    // Define color stops for the "Heat/Fire" pattern
-    // Order: Black -> Dark Purple -> Red -> Orange -> Yellow -> White
+    value = std::clamp(value, 0.0f, 1.0f);
     const int num_stops = 6;
     vec4 colors[num_stops] = {
-        {0.0f, 0.0f, 0.0f, 1.0f}, // 0.0: Black
-        {0.3f, 0.0f, 0.6f, 1.0f}, // 0.2: Dark Purple
-        {0.8f, 0.0f, 0.0f, 1.0f}, // 0.4: Deep Red
-        {1.0f, 0.5f, 0.0f, 1.0f}, // 0.6: Orange
-        {1.0f, 1.0f, 0.0f, 1.0f}, // 0.8: Yellow
-        {1.0f, 1.0f, 1.0f, 1.0f}  // 1.0: White
+        {0.05f, 0.0f, 0.1f, 0.3f},  // Deep Background Glow
+        {0.35f, 0.0f, 0.65f, 0.6f}, // Violet
+        {0.85f, 0.1f, 0.0f, 0.8f},  // Deep Red
+        {1.0f, 0.55f, 0.0f, 0.9f},  // Orange
+        {1.0f, 0.95f, 0.2f, 1.0f},  // Bright Yellow
+        {1.0f, 1.0f, 1.0f, 1.0f}    // Core White
     };
-    // Find which segment the value falls into
     float scaled_v = value * (num_stops - 1);
     int i = static_cast<int>(scaled_v);
     int next_i = std::min(i + 1, num_stops - 1);
-    
-    // Calculate how far we are between stop 'i' and 'next_i'
-    float local_t = scaled_v - i;
-
-    // Linearly interpolate between the two colors
-    vec4 result;
-    result.r = colors[i].r + local_t * (colors[next_i].r - colors[i].r);
-    result.g = colors[i].g + local_t * (colors[next_i].g - colors[i].g);
-    result.b = colors[i].b + local_t * (colors[next_i].b - colors[i].b);
-    result.a = 1.0f; // Solid opacity
-    // result = vec4(0.2, 0.9, 0.05, 1.0);
-
-    return result;
+    float t = scaled_v - i;
+    return mix(colors[i], colors[next_i], t);
 }
-vec4 inferno(double r, double theta, double phi, int n, int l, int m) {
-    //radial part |R(r)|^2 
-    double rho = 2.0 * r / (n * a0);
 
-    int k = n - l - 1;
-    int alpha = 2 * l + 1;
+vec4 calculateOrbitalColor(double r, double theta, int n_val, int l_val, int m_val) {
+    double rho = 2.0 * r / (n_val * a0);
+    int k = n_val - l_val - 1;
+    int alpha = 2 * l_val + 1;
 
-    double L = 1.0;
-    if (k == 1) {
-        L = 1.0 + alpha - rho;
-    } else if (k > 1) {
+    double L = 1.0, Lm1 = 1.0 + alpha - rho;
+    if (k == 1) L = Lm1;
+    else if (k > 1) {
         double Lm2 = 1.0;
-        double Lm1 = 1.0 + alpha - rho;
         for (int j = 2; j <= k; ++j) {
-            L = ((2*j - 1 + alpha - rho) * Lm1 -
-                 (j - 1 + alpha) * Lm2) / j;
+            L = ((2 * j - 1 + alpha - rho) * Lm1 - (j - 1 + alpha) * Lm2) / j;
             Lm2 = Lm1;
             Lm1 = L;
         }
     }
-    double norm = pow(2.0 / (n * a0), 3)
-                * tgamma(n - l)
-                / (2.0 * n * tgamma(n + l + 1));
-
-    double R = sqrt(norm) * exp(-rho / 2.0) * pow(rho, l) * L;
+    double norm = pow(2.0 / (n_val * a0), 3) * tgamma(n_val - l_val) / (2.0 * n_val * tgamma(n_val + l_val + 1));
+    double R = sqrt(norm) * exp(-rho / 2.0) * pow(rho, l_val) * L;
     double radial = R * R;
 
-    //angular part |P_l^m(cosθ)|^2 
     double x = cos(theta);
-
+    int abs_m = std::abs(m_val);
     double Pmm = 1.0;
-    if (m > 0) {
-        double somx2 = sqrt((1.0 - x) * (1.0 + x));
+    if (abs_m > 0) {
+        double somx2 = sqrt(std::max(0.0, (1.0 - x) * (1.0 + x)));
         double fact = 1.0;
-        for (int j = 1; j <= m; ++j) {
+        for (int j = 1; j <= abs_m; ++j) {
             Pmm *= -fact * somx2;
             fact += 2.0;
         }
     }
-    double Plm;
-    if (l == m) {
-        Plm = Pmm;
-    } else {
-        double Pm1m = x * (2*m + 1) * Pmm;
-        if (l == m + 1) {
-            Plm = Pm1m;
-        } else {
-            for (int ll = m + 2; ll <= l; ++ll) {
-                double Pll = ((2*ll - 1) * x * Pm1m -
-                              (ll + m - 1) * Pmm) / (ll - m);
+    double Plm = Pmm;
+    if (l_val > abs_m) {
+        double Pm1m = x * (2 * abs_m + 1) * Pmm;
+        if (l_val == abs_m + 1) Plm = Pm1m;
+        else {
+            for (int ll = abs_m + 2; ll <= l_val; ++ll) {
+                double Pll = ((2 * ll - 1) * x * Pm1m - (ll + abs_m - 1) * Pmm) / (ll - abs_m);
                 Pmm = Pm1m;
                 Pm1m = Pll;
             }
             Plm = Pm1m;
         }
     }
-    double angular = Plm * Plm;
-
-    double intensity = radial * angular;
-
-    //cout << "intensity: " << intensity << endl;
-    // return vec4(1.0f);
-    return heatmap_fire(intensity * LightingScaler); // Scale for better color mapping
+    double intensity = radial * (Plm * Plm);
+    float t = static_cast<float>((log10(intensity + 1e-12) + 8.0) / 8.0);
+    return heatmap_fire(t);
 }
 
-// Raytracer
-struct Sphere { vec4 center_radius;  vec4 color; };
+vec3 sphericalToCartesian(float r, float theta, float phi) {
+    return vec3(r * sin(theta) * cos(phi), r * cos(theta), r * sin(theta) * sin(phi));
+}
+
+vec3 calculateProbabilityFlow(const Particle& p, int m_val) {
+    double r = length(p.pos);
+    if (r < 1e-5) return vec3(0.0f);
+    double theta = acos(std::clamp(p.pos.y / (float)r, -1.0f, 1.0f));
+    double phi = atan2(p.pos.z, p.pos.x);
+
+    double sinTheta = sin(theta);
+    if (abs(sinTheta) < 1e-3) sinTheta = (sinTheta >= 0 ? 1e-3 : -1e-3);
+    double v_mag = (hbar * m_val) / (m_e * r * sinTheta);
+
+    return vec3(-v_mag * sin(phi), 0.0, v_mag * cos(phi));
+}
+
+void generateParticles(int count) {
+    particles.clear();
+    particles.reserve(count);
+    uniform_real_distribution<float> disPhi(0.0f, 2.0f * (float)M_PI);
+
+    for (int i = 0; i < count; ++i) {
+        double r = sampleR(n, l, gen);
+        double theta = sampleTheta(l, m, gen);
+        double phi = disPhi(gen);
+
+        vec3 pos = sphericalToCartesian((float)r, (float)theta, (float)phi);
+        vec4 col = calculateOrbitalColor(r, theta, n, l, m);
+        particles.emplace_back(pos, col);
+    }
+}
+//Interactive Camera
 struct Camera {
-    vec3 target = vec3(0.0f, 0.0f, 0.0f);
-    float radius = 50.0f;
-    float azimuth = 0.0f;
-    float elevation = M_PI / 2.0f;
-    float orbitSpeed = 0.01f;
-    float panSpeed = 0.01f;
-    double zoomSpeed = zmSpeed;
+    vec3 target = vec3(0.0f);
+    float radius = 40.0f;
+    float azimuth = 0.8f;
+    float elevation = 1.2f;
+    float orbitSpeed = 0.006f;
     bool dragging = false;
-    bool panning = false;
     double lastX = 0.0, lastY = 0.0;
 
     vec3 position() const {
-        float clampedElevation = std::clamp(elevation, 0.01f, float(M_PI) - 0.01f);
+        float el = std::clamp(elevation, 0.05f, (float)M_PI - 0.05f);
         return vec3(
-            radius * sin(clampedElevation) * cos(azimuth),
-            radius * cos(clampedElevation),
-            radius * sin(clampedElevation) * sin(azimuth)
+            radius * sin(el) * cos(azimuth),
+            radius * cos(el),
+            radius * sin(el) * sin(azimuth)
         );
-    }
-    void update() {
-        target = vec3(0.0f, 0.0f, 0.0f);
     }
 
     void processMouseMove(double x, double y) {
-        float dx = float(x - lastX);
-        float dy = float(y - lastY);
         if (dragging) {
-            azimuth += dx * orbitSpeed;
-            elevation -= dy * orbitSpeed;
-            elevation = glm::clamp(elevation, 0.01f, float(M_PI) - 0.01f);
+            azimuth += (float)(x - lastX) * orbitSpeed;
+            elevation -= (float)(y - lastY) * orbitSpeed;
+            elevation = std::clamp(elevation, 0.05f, (float)M_PI - 0.05f);
         }
         lastX = x;
         lastY = y;
-        update();
     }
-    void processMouseButton(int button, int action, int mods, GLFWwindow* win) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_MIDDLE) {
+
+    void processMouseButton(int button, int action, GLFWwindow* win) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
             if (action == GLFW_PRESS) {
                 dragging = true;
                 glfwGetCursorPos(win, &lastX, &lastY);
@@ -408,378 +266,214 @@ struct Camera {
             }
         }
     }
-    void processScroll(double xoffset, double yoffset) {
-        radius -= yoffset * zoomSpeed;
-        if (radius < 1.0f) radius = 1.0f;
-        update();
-    };
+
+    void processScroll(double yoffset) {
+        radius -= (float)yoffset * 2.5f;
+        if (radius < 2.0f) radius = 2.0f;
+    }
 };
 Camera camera;
 
-vec3 sphericalToCartesian(float r, float theta, float phi){
-    float x = r * sin(theta) * cos(phi);
-    float y = r * cos(theta);
-    float z = r * sin(theta) * sin(phi);
-    return vec3(x, y, z);
-}
-void generateParticles(int N) {
-    particles.clear();
-    for (int i = 0; i < N; ++i) {
-        // get x, y, z, positions
-        vec3 pos = sphericalToCartesian(
-            sampleR(n, l, gen), 
-            sampleTheta(l, m, gen), 
-            samplePhi(n, l, m)
-        );
-        // color & add particle 
-        float r = length(pos);
-        double theta = acos(pos.y / r);
-        double phi = atan2(pos.z, pos.x);
-        vec4 col = inferno(r, theta, phi, n, l, m) ;
-        particles.emplace_back(pos, col);
-    }
-}
+//OpenGl engine and shaders
 struct Engine {
     GLFWwindow* window;
-    int WIDTH = 800;
-    int HEIGHT = 600;
+    int WIDTH = 1024, HEIGHT = 768;
+    GLuint shaderProgram;
+    GLuint VAO, VBO;
 
-    // Raytracing vals
-    GLuint raytracingShaderProgram;
-    GLuint fullscreen_VAO, fullscreen_VBO;
-    GLuint ssbo_spheres;
-    Engine () {
-        // Init GLFW 
-        if (!glfwInit()) { cerr << "GLFW init failed\n"; exit(EXIT_FAILURE); } 
+    Engine() {
+        if (!glfwInit()) exit(EXIT_FAILURE);
 
-        // Init Window 
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Quantum Simulation by kavan G - Raytraced", nullptr, nullptr);
-        if (!window) { cerr << "Failed to create GLFW window\n"; glfwTerminate(); exit(EXIT_FAILURE); } 
-        glfwMakeContextCurrent(window); glViewport(0, 0, WIDTH, HEIGHT); glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        
-        // Init GLEW 
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#endif
+
+        window = glfwCreateWindow(WIDTH, HEIGHT, "Hydrogen Orbital Wavefunction Visualizer", nullptr, nullptr);
+        if (!window) { glfwTerminate(); exit(EXIT_FAILURE); }
+
+        glfwMakeContextCurrent(window);
         glewExperimental = GL_TRUE;
-        if (glewInit() != GLEW_OK) { cerr << "Failed to initialize GLEW\n"; glfwTerminate(); exit(EXIT_FAILURE); }
+        if (glewInit() != GLEW_OK) { glfwTerminate(); exit(EXIT_FAILURE); }
 
-        // blending for smooth rendering
+        glEnable(GL_PROGRAM_POINT_SIZE);
         glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        // NEW: Initialize the SSBO 
-        glGenBuffers(1, &ssbo_spheres);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_spheres);
-        // Allocate space for 25,000 spheres (matches your particle count)
-        glBufferData(GL_SHADER_STORAGE_BUFFER, N * sizeof(Sphere), NULL, GL_DYNAMIC_DRAW);
-        // Bind the buffer to index 0 so the shader can see it
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_spheres);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for volumetric glow
+        glDisable(GL_DEPTH_TEST);
 
-        raytracingShaderProgram = CreateRaytracingShaderProgram();
-        setupFullscreenQuad();
+        initShaders();
+        initBuffers();
     }
-    vec3 sphericalToCartesian(float r, float theta, float phi){
-        float x = r * sin(theta) * cos(phi);
-        float y = r * cos(theta);
-        float z = r * sin(theta) * sin(phi);
-        return vec3(x, y, z);
-    }
-    //Raytracer functions 
-    void setupFullscreenQuad() {
-        float quadVertices[] = {
-            -1.0f,  1.0f,
-            -1.0f, -1.0f,
-             1.0f, -1.0f,
-            -1.0f,  1.0f,
-             1.0f, -1.0f,
-             1.0f,  1.0f
-        };
-        glGenVertexArrays(1, &fullscreen_VAO);
-        glGenBuffers(1, &fullscreen_VBO);
-        glBindVertexArray(fullscreen_VAO);
-        glBindBuffer(GL_ARRAY_BUFFER, fullscreen_VBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+
+    void initBuffers() {
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, N * sizeof(Particle), nullptr, GL_DYNAMIC_DRAW);
+
+        // Position attribute
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Particle), (void*)offsetof(Particle, pos));
+
+        // Color attribute
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Particle), (void*)offsetof(Particle, color));
+
         glBindVertexArray(0);
     }
-    GLuint CreateRaytracingShaderProgram() {
-        const char* vertexShaderSource = R"(
-            #version 430 core
-            layout (location = 0) in vec2 aPos;
-            out vec2 ScreenPos;
+
+    void initShaders() {
+        const char* vShader = R"(
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            layout (location = 1) in vec4 aColor;
+
+            uniform mat4 uMVP;
+            uniform float uPointSize;
+            out vec4 vColor;
+
             void main() {
-                ScreenPos = aPos;
-                gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
+                gl_Position = uMVP * vec4(aPos, 1.0);
+                // Perspective point size attenuation
+                gl_PointSize = clamp(uPointSize * (60.0 / gl_Position.w), 1.5, 30.0);
+                vColor = aColor;
             }
         )";
 
-        const char* fragmentShaderSource = R"(
-            #version 430 core
+        const char* fShader = R"(
+            #version 330 core
+            in vec4 vColor;
             out vec4 FragColor;
-            in vec2 ScreenPos;
-
-            uniform vec3 camera_pos;
-            uniform mat4 inv_view_proj;
-            uniform vec3 light_pos;
-            uniform float light_intensity;
-            uniform vec3 ambient_light;
-
-            struct Sphere {
-                vec4 center_radius; // xyz = center, w = radius
-                vec4 color;
-            };
-
-            layout(std430, binding = 0) buffer SphereBuffer {
-                Sphere spheres[];
-            };
-
-            // Ray-sphere intersection test. Returns distance t or -1.0 for no hit.
-            float intersect_sphere(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float sphere_radius) {
-                vec3 oc = ray_origin - sphere_center;
-                float a = dot(ray_dir, ray_dir);
-                float b = 2.0 * dot(oc, ray_dir);
-                float c = dot(oc, oc) - sphere_radius * sphere_radius;
-                float discriminant = b * b - 4.0 * a * c;
-                if (discriminant < 0.0) {
-                    return -1.0;
-                } else {
-                    return (-b - sqrt(discriminant)) / (2.0 * a);
-                }
-            }
-
-            // Checks for any intersection along a ray up to a max distance. For shadows.
-            bool any_hit(vec3 ray_origin, vec3 ray_dir, float max_dist) {
-                uint num_spheres = spheres.length();
-                for (uint i = 0; i < num_spheres; ++i) {
-                    float t = intersect_sphere(ray_origin, ray_dir, spheres[i].center_radius.xyz, spheres[i].center_radius.w);
-                    if (t > 0.0 && t < max_dist) {
-                        return true;
-                    }
-                }
-                return false;
-            }
 
             void main() {
-                // Construct ray from camera through the screen
-                vec4 target = inv_view_proj * vec4(ScreenPos, 1.0, 1.0);
-                vec3 ray_dir = normalize(vec3(target / target.w) - camera_pos);
+                // Soft circular Gaussian point sprite
+                vec2 coord = gl_PointCoord - vec2(0.5);
+                float distSq = dot(coord, coord);
+                if (distSq > 0.25) discard;
 
-                // Find closest sphere intersection
-                float t_min = 1e20;
-                int closest_sphere_idx = -1;
-                uint num_spheres = spheres.length();
-                for (uint i = 0; i < num_spheres; ++i) {
-                    float t = intersect_sphere(camera_pos, ray_dir, spheres[i].center_radius.xyz, spheres[i].center_radius.w);
-                    if (t > 0.0 && t < t_min) {
-                        t_min = t;
-                        closest_sphere_idx = int(i);
-                    }
-                }
-
-                if (closest_sphere_idx != -1) {
-                    // We hit a sphere, calculate lighting
-                    vec3 hit_pos = camera_pos + t_min * ray_dir;
-                    vec3 normal = normalize(hit_pos - spheres[closest_sphere_idx].center_radius.xyz);
-                    vec3 sphere_color = spheres[closest_sphere_idx].color.rgb;
-
-                    // Shadow calculation
-                    vec3 light_dir = normalize(light_pos - hit_pos);
-                    float light_dist = length(light_pos - hit_pos);
-                    float shadow_factor = 1.0;
-                    // Cast shadow ray, offsetting origin slightly to avoid self-shadowing
-                    if (any_hit(hit_pos + normal * 0.001, light_dir, light_dist)) {
-                        shadow_factor = 0.0; // Point is in shadow
-                    }
-
-                    // Diffuse lighting from point light
-                    float diff = max(dot(normal, light_dir), 0.0);
-                    vec3 diffuse = diff * sphere_color * shadow_factor * light_intensity;
-                    
-                    // Ambient lighting
-                    vec3 ambient = ambient_light * sphere_color * light_intensity;
-                    
-                    FragColor = vec4(ambient + diffuse, spheres[closest_sphere_idx].color.a);
-                } else {
-                    // Nothing hit, draw background
-                    FragColor = vec4(0.0f, 0.0f, 0.0f, 0.0f); // Black Background
-                }
+                float alpha = exp(-distSq * 10.0);
+                FragColor = vec4(vColor.rgb, vColor.a * alpha * 0.35);
             }
         )";
 
-        GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-        glCompileShader(vertexShader);
-        // Error checking here...
+        GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vs, 1, &vShader, nullptr);
+        glCompileShader(vs);
 
-        GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-        glCompileShader(fragmentShader);
-        // Error checking here...
+        GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fs, 1, &fShader, nullptr);
+        glCompileShader(fs);
 
-        GLuint shaderProgram = glCreateProgram();
-        glAttachShader(shaderProgram, vertexShader);
-        glAttachShader(shaderProgram, fragmentShader);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs);
         glLinkProgram(shaderProgram);
-        // Error checking here...
 
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
-
-        return shaderProgram;
-    }
-    void runRayTracer(vector<Sphere> sphere_data) {
-        if (sphere_data.empty()) return;
-        // Update GPU buffer with current sphere positions
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_spheres);
-        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sphere_data.size() * sizeof(Sphere), sphere_data.data());
-        
-        // Crucial: Link the buffer to binding point 0 for the shader
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo_spheres);
-
-        // Raytracing Render
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glUseProgram(raytracingShaderProgram);
-
-        // Update GPU buffer
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_spheres);
-        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sphere_data.size() * sizeof(Sphere), sphere_data.data());
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-        // Raytracing Render
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram( raytracingShaderProgram);
-
-        mat4 view = lookAt(camera.position(), camera.target, vec3(0,1,0));
-        mat4 projection = perspective(radians(45.0f), (float)WIDTH/HEIGHT, 0.1f, 10000.0f);
-        mat4 invViewProj = inverse(projection * view);
-
-        // Define light properties and pass them to the shader
-        vec3 light_pos = vec3(0.0f, 50.0f, 50.0f);
-        vec3 ambient_light = vec3(0.2f);
-        float light_intensity = 3.0f;
-
-        glUniform3fv(glGetUniformLocation( raytracingShaderProgram, "camera_pos"), 1, value_ptr(camera.position()));
-        glUniformMatrix4fv(glGetUniformLocation( raytracingShaderProgram, "inv_view_proj"), 1, GL_FALSE, value_ptr(invViewProj));
-        glUniform3fv(glGetUniformLocation( raytracingShaderProgram, "light_pos"), 1, value_ptr(light_pos));
-        glUniform3fv(glGetUniformLocation( raytracingShaderProgram, "ambient_light"), 1, value_ptr(ambient_light));
-        glUniform1f(glGetUniformLocation(raytracingShaderProgram, "light_intensity"), light_intensity);
-        
-        glBindVertexArray(fullscreen_VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
     }
 
-    void setupCameraCallbacks() {
+    void setupCallbacks() {
         glfwSetWindowUserPointer(window, &camera);
-        glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
-            ((Camera*)glfwGetWindowUserPointer(win))->processMouseButton(button, action, mods, win);
+        glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int btn, int act, int) {
+            ((Camera*)glfwGetWindowUserPointer(win))->processMouseButton(btn, act, win);
         });
         glfwSetCursorPosCallback(window, [](GLFWwindow* win, double x, double y) {
             ((Camera*)glfwGetWindowUserPointer(win))->processMouseMove(x, y);
         });
-        glfwSetScrollCallback(window, [](GLFWwindow* win, double xoffset, double yoffset) {
-            ((Camera*)glfwGetWindowUserPointer(win))->processScroll(xoffset, yoffset);
+        glfwSetScrollCallback(window, [](GLFWwindow* win, double, double yoff) {
+            ((Camera*)glfwGetWindowUserPointer(win))->processScroll(yoff);
         });
-        // Key callback: modify global quantum numbers
-        glfwSetKeyCallback(window, [](GLFWwindow* win, int key, int scancode, int action, int mods) {
-            if (!(action == GLFW_PRESS || action == GLFW_REPEAT)) return;
+        glfwSetKeyCallback(window, [](GLFWwindow*, int key, int, int act, int) {
+            if (act != GLFW_PRESS && act != GLFW_REPEAT) return;
+            bool changed = false;
 
-            if (key == GLFW_KEY_W) {
-                n += 1;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_S) {
-                n -= 1;
-                if (n < 1) n = 1;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_E) {
-                l += 1;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_D) {
-                l -= 1;
-                if (l < 0) l = 0;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_R) {
-                m += 1;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_F) {
-                m -= 1;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_T) {
-                N *=10;
-                generateParticles(N);
-            } else if (key == GLFW_KEY_G) {
-                N /=10;
-                generateParticles(N);
-            }
+            if (key == GLFW_KEY_W) { n++; changed = true; }
+            else if (key == GLFW_KEY_S) { if (n > 1) n--; changed = true; }
+            else if (key == GLFW_KEY_E) { l++; changed = true; }
+            else if (key == GLFW_KEY_D) { if (l > 0) l--; changed = true; }
+            else if (key == GLFW_KEY_R) { m++; changed = true; }
+            else if (key == GLFW_KEY_F) { m--; changed = true; }
 
-            // Clamp to valid ranges
-            if (l > n - 1) l = n - 1;
-            if (l < 0) l = 0;
+            if (l >= n) l = n - 1;
             if (m > l) m = l;
             if (m < -l) m = -l;
 
-            //electron_r = float(n) / 3.0f;
-            cout << "Quantum numbers updated: n=" << n << " l=" << l << " m=" << m << " N=" << N << "\n";
+            if (changed) {
+                generateParticles(N);
+                cout << "Orbital Updated -> n: " << n << " | l: " << l << " | m: " << m << "\n";
+            }
         });
     }
-};
-Engine engine;
 
+    void render() {
+        glClearColor(0.02f, 0.02f, 0.03f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(shaderProgram);
+
+        int w, h;
+        glfwGetFramebufferSize(window, &w, &h);
+        glViewport(0, 0, w, h);
+
+        mat4 proj = perspective(radians(45.0f), (float)w / (float)h, 0.1f, 500.0f);
+        mat4 view = lookAt(camera.position(), camera.target, vec3(0, 1, 0));
+        mat4 mvp = proj * view;
+
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uMVP"), 1, GL_FALSE, value_ptr(mvp));
+        glUniform1f(glGetUniformLocation(shaderProgram, "uPointSize"), 6.0f);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, particles.size() * sizeof(Particle), particles.data());
+
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_POINTS, 0, (GLsizei)particles.size());
+        glBindVertexArray(0);
+    }
+};
 
 //Main Loop
-int main () {
-    engine.setupCameraCallbacks();
+int main() {
+    Engine engine;
+    engine.setupCallbacks();
 
-    // Quantum numbers setup 
+    generateParticles(N);
 
-    // Sample particles 
-    for (int i = 0; i < N; ++i) {
-        // get x, y, z, positions
-        vec3 pos = engine.sphericalToCartesian(
-            sampleR(n, l, gen), 
-            sampleTheta(l, m, gen), 
-            samplePhi(n, l, m)
-        );
-        // color & add particle 
-        float r = length(pos);
-        double theta = acos(pos.y / r);
-        double phi = atan2(pos.z, pos.x);
-        vec4 col = inferno(r, theta, phi, n, l, m) ;
+    cout << "===================================================\n";
+    cout << " Quantum Orbital Probability Density Visualizer\n";
+    cout << " Controls:\n";
+    cout << "   [W/S] : Inc/Dec Principal Number (n)\n";
+    cout << "   [E/D] : Inc/Dec Azimuthal Number (l)\n";
+    cout << "   [R/F] : Inc/Dec Magnetic Number  (m)\n";
+    cout << "   [Mouse Drag & Scroll] : Orbit / Zoom View\n";
+    cout << "===================================================\n";
 
-        particles.emplace_back(pos, col);
-    }
+    float dt = 0.2f;
+    double lastTime = glfwGetTime();
 
-    vector<Sphere> spheres;
-    for(const auto& p : particles) {
-        spheres.push_back({vec4(p.pos, electron_r), p.color});
-    }
-
-    float dt = 0.5f;
-    cout << "Starting simulation..." << endl;
     while (!glfwWindowShouldClose(engine.window)) {
+        double currentTime = glfwGetTime();
+        float frameDt = (float)(currentTime - lastTime);
+        lastTime = currentTime;
 
-        // Draw Particles 
-        vector<Sphere> sphere_data;
-        for (Particle& p : particles) {
-            double r = length(p.pos);
-            if (r > 1e-6) {
-                double theta = acos(p.pos.y / r);
-                p.vel = calculateProbabilityFlow(p, n, l, m);
-                vec3 temp_pos = p.pos + p.vel * dt;
-                double new_phi = atan2(temp_pos.z, temp_pos.x);
-                p.pos = engine.sphericalToCartesian(r, theta, new_phi);
+        // Kinematics: Update particle probability flow
+        if (m != 0) {
+            for (Particle& p : particles) {
+                p.vel = calculateProbabilityFlow(p, m);
+                p.pos += p.vel * dt;
             }
-            if (p.pos.z < 0 || p.pos.y < 0)
-            sphere_data.push_back({vec4(p.pos, electron_r), p.color});
         }
-        engine.runRayTracer(sphere_data);
-
+        engine.render();
         glfwSwapBuffers(engine.window);
         glfwPollEvents();
     }
-
-    // Cleanup 
-    glDeleteBuffers(1, &engine.ssbo_spheres);
-    
+    glDeleteVertexArrays(1, &engine.VAO);
+    glDeleteBuffers(1, &engine.VBO);
+    glDeleteProgram(engine.shaderProgram);
     glfwDestroyWindow(engine.window);
     glfwTerminate();
     return 0;
