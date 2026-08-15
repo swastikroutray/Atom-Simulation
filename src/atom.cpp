@@ -8,187 +8,180 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
 using namespace glm;
 using namespace std;
 
-//variables
-
 float orbitDistance = 15.0f;
 
-//engine
-
-struct Wave;
-vec2 mouseWorld(0.0f);
 struct Engine {
-
     GLFWwindow* window;
     int WIDTH = 800, HEIGHT = 600;
 
-    Engine () {
-        // Init GLFW 
+    Engine() {
         if (!glfwInit()) {
-            cerr << "failed to init glfw, LOL";
+            cerr << "Failed to init GLFW\n";
             exit(EXIT_FAILURE);
         }
 
-        // Create Window
-        window = glfwCreateWindow(WIDTH, HEIGHT, "2D atom sim by swastik", nullptr, nullptr);
+        window = glfwCreateWindow(WIDTH, HEIGHT, "2D Atom Sim", nullptr, nullptr);
         if (!window) {
-            cerr << "failed to create window, LOLOLOL";
+            cerr << "Failed to create window\n";
             glfwTerminate();
             exit(EXIT_FAILURE);
         }
+
         glfwMakeContextCurrent(window);
+        
+        glewExperimental = GL_TRUE;
+        if (glewInit() != GLEW_OK) {
+            cerr << "Note: GLEW failed or not strictly required for fixed pipeline\n";
+        }
+
         int fbWidth, fbHeight;
         glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
         glViewport(0, 0, fbWidth, fbHeight);
     }
+
     void run() {
         glClear(GL_COLOR_BUFFER_BIT);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
 
-        // set origin to centre
-        double halfWidth = WIDTH / 2.0f, halfHeight = HEIGHT / 2.0f;
+        double halfWidth = WIDTH / 2.0;
+        double halfHeight = HEIGHT / 2.0;
         glOrtho(-halfWidth, halfWidth, -halfHeight, halfHeight, -1.0, 1.0);
 
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
     }
 };
+
 Engine engine;
 
-//waves
+// Waves
+struct WavePoint { 
+    vec2 localPos; 
+    vec2 dir; 
+};
 
-struct WavePoint { vec2 localPos; vec2 dir;  };
 struct Wave {
-   float energy;
-   float sigma = 40.0f, k = 0.4f, phase = 0.0f, a = 10.0f, angleR;
-   vector<WavePoint> points;
+    float energy;
+    float sigma = 40.0f, k = 0.4f, phase = 0.0f, a = 10.0f;
+    vector<WavePoint> points;
     vec2 pos, dir;
     vec3 col;
-    Wave(float e, vec2 pos, vec2 dir, vec3 col = vec3(0.0f, 1.0f, 1.0f)) : energy(e), pos(pos), dir(dir), col(col) {
-       dir = normalize(dir);
-       for (float x = -sigma; x <= sigma; x += 0.1f) {
-           points.push_back({ pos + x*dir, dir * 200.0f});
-       }
-       angleR = atan2(dir.y, dir.x);
-   }
-  
-   void draw() {
+
+    Wave(float e, vec2 pos, vec2 dir, vec3 col = vec3(0.0f, 1.0f, 1.0f)) 
+        : energy(e), pos(pos), dir(dir), col(col) {
+        this->dir = normalize(dir);
+        // Step increased from 0.1f to 1.0f for smooth 60 FPS on CPU laptops
+        for (float x = -sigma; x <= sigma; x += 1.0f) {
+            points.push_back({ pos + x * this->dir, this->dir * 200.0f });
+        }
+    }
+
+    void draw() {
         glColor3f(col.r, col.g, col.b);
         glBegin(GL_LINE_STRIP);
         for (WavePoint& p : points) {
-            // Perpendicular vector for sine displacement
             vec2 perp(-p.dir.y, p.dir.x);
             perp = normalize(perp);
-
-
-        // Use global phase, not x, for sine
-        float y_disp = a * sin(k * length(p.localPos) - phase);
-
-
+            float y_disp = a * sin(k * length(p.localPos) - phase);
             vec2 drawPos = p.localPos + perp * y_disp;
             glVertex2f(drawPos.x, drawPos.y);
         }
         glEnd();
     }
+
     bool update(float dt) {
-       phase += 30.0f * dt; // continuous phase
-
-
-       for (WavePoint& p : points) {
-           // move along velocity
-           p.localPos += p.dir * dt;
-
-
-            if (p.localPos.x < -engine.WIDTH/2.0f || p.localPos.x > engine.WIDTH/2.0f || p.localPos.y < -engine.HEIGHT/2.0f || p.localPos.y > engine.HEIGHT/2.0f) {
-                return true;
+        phase += 30.0f * dt;
+        for (WavePoint& p : points) {
+            p.localPos += p.dir * dt;
+            if (p.localPos.x < -engine.WIDTH / 2.0f || p.localPos.x > engine.WIDTH / 2.0f ||
+                p.localPos.y < -engine.HEIGHT / 2.0f || p.localPos.y > engine.HEIGHT / 2.0f) {
+                return true; // Out of bounds
             }
-       }
-       return false;
-   }
+        }
+        return false;
+    }
 };
-vector<Wave> waves { };
 
-//particles
+vector<Wave> waves;
+vector<Wave> pendingWaves; // Buffer to prevent vector re-allocation during loops
+
+// Particles
 struct Particle {
     vec2 pos;
     int charge;
     float angle = 0.0f;
     int n = 1;
     float excitedTimer = 0.0f;
+
     Particle(vec2 pos, int charge) : pos(pos), charge(charge) {}
 
-    void draw (vec2 centre, int segments = 50) {
-
-        //draw outline
+    void draw(vec2 centre, int segments = 32) {
         if (charge == -1) {
             glLineWidth(0.4f);
             glBegin(GL_LINE_LOOP);
             glColor3f(0.18f, 0.22f, 0.3f);
             for (int i = 0; i <= segments; i++) {
-                float angle = 2.0f * M_PI * i/segments;
-                float x = cos(angle) * n * orbitDistance;
-                float y = sin(angle) * n * orbitDistance;  
+                float theta = 2.0f * M_PI * i / segments;
+                float x = cos(theta) * n * orbitDistance;
+                float y = sin(theta) * n * orbitDistance;
                 glVertex2f(x + centre.x, y + centre.y);
             }
             glEnd();
         }
 
-        //draw particles
-        float r;
-        if (charge == -1)       { r = 2; glColor3f(0.0f, 0.85f, 1.0f); } 
-        else if (charge == 1)   { r = 5; glColor3f(1.0f, 0.3f, 0.45f); } 
-        else                    { r = 5; glColor3f(0.45f, 0.55f, 0.65f); }
+        float r = (charge == -1) ? 2.0f : 5.0f;
+        if (charge == -1)      glColor3f(0.0f, 0.85f, 1.0f);
+        else if (charge == 1)  glColor3f(1.0f, 0.3f, 0.45f);
+        else                   glColor3f(0.45f, 0.55f, 0.65f);
 
         glBegin(GL_TRIANGLE_FAN);
         glVertex2f(pos.x, pos.y);
         for (int i = 0; i <= segments; i++) {
-            float angle = 2.0f * M_PI * i/segments;
-            float x = cos(angle) * r;
-            float y = sin(angle) * r;  
+            float theta = 2.0f * M_PI * i / segments;
+            float x = cos(theta) * r;
+            float y = sin(theta) * r;
             glVertex2f(x + pos.x, y + pos.y);
         }
         glEnd();
-
     }
-     void update (vec2 c) {
-        // set the radius
+
+    void update(vec2 c) {
         float r = n * orbitDistance;
-        angle += 0.05;
-        // update position with new angle and radius
-        pos = vec2( cos(angle) * r + c.x, 
-                    sin(angle) * r + c.y
-                );
+        angle += 0.05f;
+        pos = vec2(cos(angle) * r + c.x, sin(angle) * r + c.y);
 
         if (excitedTimer <= 0.0f && n > 1) {
             n--;
-            excitedTimer += 0.003f;
+            excitedTimer = 0.5f; // Reasonable decay interval
             float waveDirX = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
             float waveDirY = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
-            float energyDiff = -13.6f/((n+1)*(n+1)) - (-13.6f/(n*n));
-            waves.emplace_back(energyDiff, pos, vec2(waveDirX, waveDirY), vec3(1.0f, 0.85f, 0.2f));
+            float energyDiff = -13.6f / ((n + 1) * (n + 1)) - (-13.6f / (n * n));
+            pendingWaves.emplace_back(energyDiff, pos, normalize(vec2(waveDirX, waveDirY)), vec3(1.0f, 0.85f, 0.2f));
         }
     }
 };
 
-//atom structure
-
-struct Atom{
+struct Atom {
     vec2 pos;
     vec2 v = vec2(0.0f);
-    vector<Particle> particles = { };
+    vector<Particle> particles;
+
     Atom(vec2 p) : pos(p) {
-        particles.emplace_back(pos, 1);                                 // proton
-        particles.emplace_back(vec2(pos.x - orbitDistance, pos.y), -1); // electron
+        particles.emplace_back(pos, 1);
+        particles.emplace_back(vec2(pos.x - orbitDistance, pos.y), -1);
     }
 };
-vector<Atom> atoms {
-};
+
+vector<Atom> atoms;
 
 static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS) return;
@@ -196,126 +189,112 @@ static void mouseButtonCallback(GLFWwindow* window, int button, int action, int 
     double mx, my;
     glfwGetCursorPos(window, &mx, &my);
 
-    Engine* engine = static_cast<Engine*>(glfwGetWindowUserPointer(window));
-
-    // screen → world 
-    float worldX = (float)mx - engine->WIDTH / 2.0f;
-    float worldY = engine->HEIGHT / 2.0f - (float)my;
+    Engine* eng = static_cast<Engine*>(glfwGetWindowUserPointer(window));
+    float worldX = (float)mx - eng->WIDTH / 2.0f;
+    float worldY = eng->HEIGHT / 2.0f - (float)my;
     vec2 spawnPos(worldX, worldY);
 
-    // spawn 25 waves in all directions
-    float energyN1toN2 = -13.6f/(2*2) - (-13.6f);
+    float energyN1toN2 = -13.6f / 4.0f - (-13.6f);
     for (int i = 0; i < 25; i++) {
         float angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
         vec2 dir(cos(angle), sin(angle));
-
-        waves.push_back(
-            Wave(energyN1toN2, spawnPos, dir)
-        );
+        waves.emplace_back(energyN1toN2, spawnPos, dir);
     }
 }
 
-//main
+int main() {
+    srand(static_cast<unsigned int>(time(nullptr)));
 
-int main () {
-
-    // Initialize 20 atoms in a circle at the center
-    {
-        int num_atoms = 20;
-        float radius = 100.0f; // Radius of the circle
-        for (int i = 0; i < num_atoms; i++) {
-            float angle = 2.0f * M_PI * i / num_atoms;
-            float x = cos(angle) * radius;
-            float y = sin(angle) * radius;
-            atoms.emplace_back(vec2(x, y));
-        }
+    int num_atoms = 20;
+    float radius = 100.0f;
+    for (int i = 0; i < num_atoms; i++) {
+        float angle = 2.0f * M_PI * i / num_atoms;
+        atoms.emplace_back(vec2(cos(angle) * radius, sin(angle) * radius));
     }
 
-     // callbacks
     glfwSetWindowUserPointer(engine.window, &engine);
     glfwSetMouseButtonCallback(engine.window, mouseButtonCallback);
 
-    // init waves 
-    float energyN1toN2 = -13.6f/(2*2) - (-13.6f);
+    float energyN1toN2 = -13.6f / 4.0f - (-13.6f);
     for (int i = 0; i < 24; i++) {
-        waves.push_back(
-            Wave(energyN1toN2, vec2(200.0f, i*20-200), vec2(-1.0f, 0.0f))
-        );
+        waves.emplace_back(energyN1toN2, vec2(200.0f, i * 20 - 200), vec2(-1.0f, 0.0f));
     }
 
     while (!glfwWindowShouldClose(engine.window)) {
         engine.run();
 
-        // Draw Particles 
-        
+        // Atom Physics & Drawing
         for (Atom &a : atoms) {
             for (Atom &a2 : atoms) {
                 if (&a2 == &a) continue;
-                float dist = length(a.pos - a2.pos);
+                float dist = std::max(length(a.pos - a2.pos), 1.0f);
                 vec2 dir = normalize(a.pos - a2.pos);
-                a.v += dir / dist * 57.5f; // Repulsion force inversely proportional to distance
+                a.v += dir / dist * 57.5f;
             }
 
-            //Boundary Repulsion 
+            // Boundary repulsion
             const float boundary_stiffness = 0.01f;
             const float boundary_threshold = 200.0f;
 
-            // Left boundary
             float dist_left = a.pos.x + engine.WIDTH / 2.0f;
-            if (dist_left < boundary_threshold) {
-                a.v.x += (boundary_threshold - dist_left) * boundary_stiffness;
-            }
+            if (dist_left < boundary_threshold) a.v.x += (boundary_threshold - dist_left) * boundary_stiffness;
 
-            // Right boundary
             float dist_right = engine.WIDTH / 2.0f - a.pos.x;
-            if (dist_right < boundary_threshold) {
-                a.v.x -= (boundary_threshold - dist_right) * boundary_stiffness;
-            }
+            if (dist_right < boundary_threshold) a.v.x -= (boundary_threshold - dist_right) * boundary_stiffness;
 
-            // Top boundary
             float dist_top = engine.HEIGHT / 2.0f - a.pos.y;
-            if (dist_top < boundary_threshold) {
-                a.v.y -= (boundary_threshold - dist_top) * boundary_stiffness;
-            }
+            if (dist_top < boundary_threshold) a.v.y -= (boundary_threshold - dist_top) * boundary_stiffness;
 
-            // Bottom boundary
             float dist_bottom = a.pos.y + engine.HEIGHT / 2.0f;
-            if (dist_bottom < boundary_threshold) {
-                a.v.y += (boundary_threshold - dist_bottom) * boundary_stiffness;
-            }
-            //a.pos += a.v;
-            a.v *= 0.99f; // Damping to stabilize the simulation
+            if (dist_bottom < boundary_threshold) a.v.y += (boundary_threshold - dist_bottom) * boundary_stiffness;
+
+            a.pos += a.v;
+            a.v *= 0.99f;
+
             for (Particle &p : a.particles) {
                 p.draw(a.pos);
 
-                //electrons
-                if (p.charge == 1) {p.pos = a.pos;}
-                if (p.charge == -1) {
+                if (p.charge == 1) {
+                    p.pos = a.pos;
+                } else if (p.charge == -1) {
                     if (p.excitedTimer > 0.0f) {
-                        p.excitedTimer -= 0.001f;
+                        p.excitedTimer -= 0.01f;
                     }
                     p.update(a.pos);
-                     for (Wave& wave : waves) {
-                        for (WavePoint& wp : wave.points) {
-                            float dist = length(p.pos - wp.localPos);
-                            float energyforUp = -13.6f/((p.n+1)*(p.n+1)) - (-13.6f/(p.n*p.n));
-                            if (dist < 20.0f && wave.energy == energyforUp && wave.col != vec3(1.0f, 1.0f, 0.0f)) {
-                                wave.energy = 0.0f;
-                                p.n += 1;
-                                p.excitedTimer += 0.003f;
-                                break;
+
+                    // Wave absorption check
+                    for (Wave& wave : waves) {
+                        if (wave.energy <= 0.0f) continue;
+
+                        float energyforUp = -13.6f / ((p.n + 1) * (p.n + 1)) - (-13.6f / (p.n * p.n));
+                        if (fabs(wave.energy - energyforUp) < 0.001f) {
+                            for (WavePoint& wp : wave.points) {
+                                if (length(p.pos - wp.localPos) < 20.0f) {
+                                    wave.energy = 0.0f;
+                                    p.n += 1;
+                                    p.excitedTimer = 1.0f;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        //Draw Waves 
+
+        // Push newly spawned de-excitation waves safely
+        if (!pendingWaves.empty()) {
+            waves.insert(waves.end(), pendingWaves.begin(), pendingWaves.end());
+            pendingWaves.clear();
+        }
+
+        // Draw and Update Waves
         for (auto it = waves.begin(); it != waves.end(); ) {
-            if (it->energy == 0.0f) {
-                ++it;
+            if (it->energy <= 0.0f) {
+                it = waves.erase(it);
                 continue;
             }
+
             it->draw();
             if (it->update(0.01f)) {
                 it = waves.erase(it);
@@ -323,8 +302,12 @@ int main () {
                 ++it;
             }
         }
+
         glfwSwapBuffers(engine.window);
         glfwPollEvents();
     }
-} 
 
+    glfwDestroyWindow(engine.window);
+    glfwTerminate();
+    return 0;
+}
