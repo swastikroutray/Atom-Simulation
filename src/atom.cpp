@@ -35,7 +35,7 @@ struct Engine {
         }
 
         // Create Window
-        window = glfwCreateWindow(WIDTH, HEIGHT, "2D atom sim by kavan", nullptr, nullptr);
+        window = glfwCreateWindow(WIDTH, HEIGHT, "2D atom sim by swastik", nullptr, nullptr);
         if (!window) {
             cerr << "failed to create window, LOLOLOL";
             glfwTerminate();
@@ -113,3 +113,5 @@ struct Wave {
    }
 };
 vector<Wave> waves { };
+
+//particles
