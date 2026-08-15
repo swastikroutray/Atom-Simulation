@@ -189,3 +189,142 @@ struct Atom{
 };
 vector<Atom> atoms {
 };
+
+static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS) return;
+
+    double mx, my;
+    glfwGetCursorPos(window, &mx, &my);
+
+    Engine* engine = static_cast<Engine*>(glfwGetWindowUserPointer(window));
+
+    // screen → world 
+    float worldX = (float)mx - engine->WIDTH / 2.0f;
+    float worldY = engine->HEIGHT / 2.0f - (float)my;
+    vec2 spawnPos(worldX, worldY);
+
+    // spawn 25 waves in all directions
+    float energyN1toN2 = -13.6f/(2*2) - (-13.6f);
+    for (int i = 0; i < 25; i++) {
+        float angle = ((float)rand() / RAND_MAX) * 2.0f * M_PI;
+        vec2 dir(cos(angle), sin(angle));
+
+        waves.push_back(
+            Wave(energyN1toN2, spawnPos, dir)
+        );
+    }
+}
+
+//main
+
+int main () {
+
+    // Initialize 20 atoms in a circle at the center
+    {
+        int num_atoms = 20;
+        float radius = 100.0f; // Radius of the circle
+        for (int i = 0; i < num_atoms; i++) {
+            float angle = 2.0f * M_PI * i / num_atoms;
+            float x = cos(angle) * radius;
+            float y = sin(angle) * radius;
+            atoms.emplace_back(vec2(x, y));
+        }
+    }
+
+     // callbacks
+    glfwSetWindowUserPointer(engine.window, &engine);
+    glfwSetMouseButtonCallback(engine.window, mouseButtonCallback);
+
+    // init waves 
+    float energyN1toN2 = -13.6f/(2*2) - (-13.6f);
+    for (int i = 0; i < 24; i++) {
+        waves.push_back(
+            Wave(energyN1toN2, vec2(200.0f, i*20-200), vec2(-1.0f, 0.0f))
+        );
+    }
+
+    while (!glfwWindowShouldClose(engine.window)) {
+        engine.run();
+
+        // Draw Particles 
+        
+        for (Atom &a : atoms) {
+            for (Atom &a2 : atoms) {
+                if (&a2 == &a) continue;
+                float dist = length(a.pos - a2.pos);
+                vec2 dir = normalize(a.pos - a2.pos);
+                a.v += dir / dist * 57.5f; // Repulsion force inversely proportional to distance
+            }
+
+            //Boundary Repulsion 
+            const float boundary_stiffness = 0.01f;
+            const float boundary_threshold = 200.0f;
+
+            // Left boundary
+            float dist_left = a.pos.x + engine.WIDTH / 2.0f;
+            if (dist_left < boundary_threshold) {
+                a.v.x += (boundary_threshold - dist_left) * boundary_stiffness;
+            }
+
+            // Right boundary
+            float dist_right = engine.WIDTH / 2.0f - a.pos.x;
+            if (dist_right < boundary_threshold) {
+                a.v.x -= (boundary_threshold - dist_right) * boundary_stiffness;
+            }
+
+            // Top boundary
+            float dist_top = engine.HEIGHT / 2.0f - a.pos.y;
+            if (dist_top < boundary_threshold) {
+                a.v.y -= (boundary_threshold - dist_top) * boundary_stiffness;
+            }
+
+            // Bottom boundary
+            float dist_bottom = a.pos.y + engine.HEIGHT / 2.0f;
+            if (dist_bottom < boundary_threshold) {
+                a.v.y += (boundary_threshold - dist_bottom) * boundary_stiffness;
+            }
+            //a.pos += a.v;
+            a.v *= 0.99f; // Damping to stabilize the simulation
+            for (Particle &p : a.particles) {
+                p.draw(a.pos);
+
+                //electrons
+                if (p.charge == 1) {p.pos = a.pos;}
+                if (p.charge == -1) {
+                    if (p.excitedTimer > 0.0f) {
+                        p.excitedTimer -= 0.001f;
+                    }
+                    p.update(a.pos);
+                     for (Wave& wave : waves) {
+                        for (WavePoint& wp : wave.points) {
+                            float dist = length(p.pos - wp.localPos);
+                            float energyforUp = -13.6f/((p.n+1)*(p.n+1)) - (-13.6f/(p.n*p.n));
+                            if (dist < 20.0f && wave.energy == energyforUp && wave.col != vec3(1.0f, 1.0f, 0.0f)) {
+                                wave.energy = 0.0f;
+                                p.n += 1;
+                                p.excitedTimer += 0.003f;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //Draw Waves 
+        for (auto it = waves.begin(); it != waves.end(); ) {
+            if (it->energy == 0.0f) {
+                ++it;
+                continue;
+            }
+            it->draw();
+            if (it->update(0.01f)) {
+                it = waves.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        glfwSwapBuffers(engine.window);
+        glfwPollEvents();
+    }
+} 
+
