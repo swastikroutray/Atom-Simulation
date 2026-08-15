@@ -348,15 +348,33 @@ int main() {
     GLint lProjLoc = glGetUniformLocation(lineProgram, "projection");
     GLint lColLoc  = glGetUniformLocation(lineProgram, "lineColor");
 
-    // Grid geometry
+    // Three reference planes — just outlined squares, no inner grid
     vector<float> gridVertices;
-    float gridSize = 100.0f;
-    int divisions = 20;
-    float step = gridSize / divisions;
-    for (int i = -divisions / 2; i <= divisions / 2; ++i) {
-        gridVertices.insert(gridVertices.end(), { (float)i * step, 0.0f, -gridSize / 2.0f, (float)i * step, 0.0f, gridSize / 2.0f });
-        gridVertices.insert(gridVertices.end(), { -gridSize / 2.0f, 0.0f, (float)i * step, gridSize / 2.0f, 0.0f, (float)i * step });
-    }
+    float half = 10.0f; // half of a 100-unit square
+
+    // XZ plane (y = 0)
+    gridVertices.insert(gridVertices.end(), {
+        -half, 0.0f, -half,   half, 0.0f, -half,
+        half, 0.0f, -half,   half, 0.0f,  half,
+        half, 0.0f,  half,  -half, 0.0f,  half,
+        -half, 0.0f,  half,  -half, 0.0f, -half
+    });
+
+    // XY plane (z = 0)
+    gridVertices.insert(gridVertices.end(), {
+        -half, -half, 0.0f,   half, -half, 0.0f,
+        half, -half, 0.0f,   half,  half, 0.0f,
+        half,  half, 0.0f,  -half,  half, 0.0f,
+        -half,  half, 0.0f,  -half, -half, 0.0f
+    });
+
+    // YZ plane (x = 0)
+    gridVertices.insert(gridVertices.end(), {
+        0.0f, -half, -half,   0.0f,  half, -half,
+        0.0f,  half, -half,   0.0f,  half,  half,
+        0.0f,  half,  half,   0.0f, -half,  half,
+        0.0f, -half,  half,   0.0f, -half, -half
+    });
 
     GLuint gridVAO, gridVBO;
     glGenVertexArrays(1, &gridVAO);
@@ -432,7 +450,7 @@ int main() {
         glUseProgram(lineProgram);
         glUniformMatrix4fv(lViewLoc, 1, GL_FALSE, value_ptr(view));
         glUniformMatrix4fv(lProjLoc, 1, GL_FALSE, value_ptr(projection));
-        glUniform4f(lColLoc, 0.2f, 0.25f, 0.35f, 0.4f);
+        glUniform4f(lColLoc, 1.0f, 1.0f, 1.0f, 0.9f);
         glBindVertexArray(gridVAO);
         glDrawArrays(GL_LINES, 0, (GLsizei)gridVertices.size() / 3);
 
