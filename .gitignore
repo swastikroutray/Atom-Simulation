@@ -1,7 +1,0 @@
-build/
-vcpkg_installed/
-out/
-*.exe
-*.obj
-*.log
-.vs/
