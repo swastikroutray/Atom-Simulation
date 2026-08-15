@@ -115,3 +115,77 @@ struct Wave {
 vector<Wave> waves { };
 
 //particles
+struct Particle {
+    vec2 pos;
+    int charge;
+    float angle = 0.0f;
+    int n = 1;
+    float excitedTimer = 0.0f;
+    Particle(vec2 pos, int charge) : pos(pos), charge(charge) {}
+
+    void draw (vec2 centre, int segments = 50) {
+
+        //draw outline
+        if (charge == -1) {
+            glLineWidth(0.4f);
+            glBegin(GL_LINE_LOOP);
+            glColor3f(0.18f, 0.22f, 0.3f);
+            for (int i = 0; i <= segments; i++) {
+                float angle = 2.0f * M_PI * i/segments;
+                float x = cos(angle) * n * orbitDistance;
+                float y = sin(angle) * n * orbitDistance;  
+                glVertex2f(x + centre.x, y + centre.y);
+            }
+            glEnd();
+        }
+
+        //draw particles
+        float r;
+        if (charge == -1)       { r = 2; glColor3f(0.0f, 0.85f, 1.0f); } 
+        else if (charge == 1)   { r = 5; glColor3f(1.0f, 0.3f, 0.45f); } 
+        else                    { r = 5; glColor3f(0.45f, 0.55f, 0.65f); }
+
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex2f(pos.x, pos.y);
+        for (int i = 0; i <= segments; i++) {
+            float angle = 2.0f * M_PI * i/segments;
+            float x = cos(angle) * r;
+            float y = sin(angle) * r;  
+            glVertex2f(x + pos.x, y + pos.y);
+        }
+        glEnd();
+
+    }
+     void update (vec2 c) {
+        // set the radius
+        float r = n * orbitDistance;
+        angle += 0.05;
+        // update position with new angle and radius
+        pos = vec2( cos(angle) * r + c.x, 
+                    sin(angle) * r + c.y
+                );
+
+        if (excitedTimer <= 0.0f && n > 1) {
+            n--;
+            excitedTimer += 0.003f;
+            float waveDirX = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            float waveDirY = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            float energyDiff = -13.6f/((n+1)*(n+1)) - (-13.6f/(n*n));
+            waves.emplace_back(energyDiff, pos, vec2(waveDirX, waveDirY), vec3(1.0f, 0.85f, 0.2f));
+        }
+    }
+};
+
+//atom structure
+
+struct Atom{
+    vec2 pos;
+    vec2 v = vec2(0.0f);
+    vector<Particle> particles = { };
+    Atom(vec2 p) : pos(p) {
+        particles.emplace_back(pos, 1);                                 // proton
+        particles.emplace_back(vec2(pos.x - orbitDistance, pos.y), -1); // electron
+    }
+};
+vector<Atom> atoms {
+};
