@@ -7,18 +7,27 @@
 The visualizer solves the hydrogen atom's wavefunction and samples particle positions from the resulting probability density:
 
 **i) Radial distribution** — computed from the Associated Laguerre polynomials, sampled via a cumulative distribution function (CDF)
+
 **ii) Angular distribution** — computed from the Associated Legendre polynomials (spherical harmonics), also sampled via CDF
+
 **iii) Particle** - Each particle is colored by local probability density using a heatmap gradient
+
 **iv) Plane** - Three reference planes (XY, XZ, YZ) are rendered around the cloud, scaling automatically with the size of the orbital
 
 Every time the quantum numbers change, the probability distributions are recalculated, and a fresh set of particles is sampled; so the shape you see is always mathematically accurate for the current n, l, m.
 
 ## Controls
+
 ***Key	Action***
+
 **W / S**	             Increase/decrease n (principal quantum number)
+
 **E / D**	             Increase/decrease l (azimuthal quantum number)
+
 **R / F**	             Increase/decrease m (magnetic quantum number)
+
 **Left-click + drag**	 Orbit the camera around the atom
+
 **Scroll**	           Zoom in / out
 
 **Quantum numbers are automatically clamped to valid combinations (0 ≤ l < n, -l ≤ m ≤ l).**
@@ -70,8 +79,11 @@ target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm
 ***Then, with vcpkg installed:***
 
 bash
+
 vcpkg install
+
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake
+
 cmake --build build
 
 The compiled executable will be in build/.
@@ -81,6 +93,9 @@ The compiled executable will be in build/.
 **File	Description**
 
 src/atom_realtime.cpp	Real-time 3D orbital visualizer with orbit camera and reference planes
+
 src/atom_raytracer.cpp	Raytraced rendering of the orbital
+
 src/atom.cpp	2D Bohr model visualization
+
 src/wave_atom.cpp	2D electron wave visualization
