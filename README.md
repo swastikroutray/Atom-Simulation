@@ -2,6 +2,9 @@
 
 ***It is a real-time hydrogen quantum orbital visualizer written in C++ and OpenGL. Electron probability density clouds are generated directly from the hydrogen wavefunction with no pre-baked meshes, just physics sampled live.***
 
+<img width="1914" height="1075" alt="image" src="https://github.com/user-attachments/assets/100ac5de-2d9a-42ea-a517-ace30a9f45ce" />
+
+
 ## How it works
 
 The visualizer solves the hydrogen atom's wavefunction and samples particle positions from the resulting probability density:
