@@ -37,11 +37,16 @@
 
 ## Tech stack
 
-***C++17***
+***C++17*** 
+
 ***OpenGL (core profile) for rendering***
+
 ***GLFW for windowing and input***
+
 ***GLEW for OpenGL function loading***
+
 ***GLM for vector/matrix math***
+
 ***CMake + vcpkg for building and dependency management***
 
 ## Building from source
@@ -59,19 +64,31 @@
 
 ***CMakeLists.txt***
 
-***cmake
+cmake
+
 cmake_minimum_required(VERSION 3.15)
+
 project(Atoms CXX)
+
 set(CMAKE_CXX_STANDARD 17)
+
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_package(OpenGL REQUIRED)
+
 find_package(GLEW REQUIRED)
+
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
+
 include_directories(src ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})
+
 add_executable(atom_realtime src/atom_realtime.cpp)
+
 target_link_libraries(atom_realtime PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)
+
 add_executable(atom_raytracer src/atom_raytracer.cpp)
+
 target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)***
 
 ***Then, with vcpkg installed:***
