@@ -64,7 +64,7 @@ double evaluateLaguerre(int k, int alpha, double rho) {
     if (k <= 0) return 1.0;
     double Lm1 = 1.0 + alpha - rho;
     if (k == 1) return Lm1;
-    
+
     double Lm2 = 1.0;
     double L = Lm1;
     for (int j = 2; j <= k; ++j) {
@@ -181,7 +181,7 @@ vec4 computeOrbitalColor(double r, double theta, int cur_n, int cur_l, int cur_m
 vec3 calculateProbabilityFlow(const vec3& pos, int cur_m) {
     double r = length(pos);
     if (r < 1e-5) return vec3(0.0f);
-    
+
     double theta = acos(std::clamp(pos.y / (float)r, -1.0f, 1.0f));
     double phi = atan2(pos.z, pos.x);
 
@@ -210,6 +210,42 @@ void generateParticles(int count) {
         particleData[i] = { pos, col };
         particleVelocities[i] = vec3(0.0f);
     }
+}
+
+// ---- Reference planes (XZ, XY, YZ) with fine grid lines, sized relative to n ----
+GLuint gridVAO = 0, gridVBO = 0;
+vector<float> gridVertices;
+float planeHalf = 8.0f * n;      // half-size of each square plane, scales with n
+int planeDivisions = 40;         // number of grid cells per plane (higher = finer grid)
+
+vector<float> createPlaneVertices(float half, int divisions) {
+    vector<float> verts;
+    float step = (half * 2.0f) / divisions;
+
+    for (int i = 0; i <= divisions; ++i) {
+        float c = -half + i * step;
+
+        // XZ plane (y = 0)
+        verts.insert(verts.end(), { c, 0.0f, -half,  c, 0.0f, half });
+        verts.insert(verts.end(), { -half, 0.0f, c,   half, 0.0f, c });
+
+        // XY plane (z = 0)
+        verts.insert(verts.end(), { c, -half, 0.0f,  c, half, 0.0f });
+        verts.insert(verts.end(), { -half, c, 0.0f,   half, c, 0.0f });
+
+        // YZ plane (x = 0)
+        verts.insert(verts.end(), { 0.0f, c, -half,  0.0f, c, half });
+        verts.insert(verts.end(), { 0.0f, -half, c,   0.0f, half, c });
+    }
+
+    return verts;
+}
+
+void rebuildGrid() {
+    planeHalf = 8.0f * n;
+    gridVertices = createPlaneVertices(planeHalf, planeDivisions);
+    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
+    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
 }
 
 // Orbit Camera
@@ -348,39 +384,12 @@ int main() {
     GLint lProjLoc = glGetUniformLocation(lineProgram, "projection");
     GLint lColLoc  = glGetUniformLocation(lineProgram, "lineColor");
 
-    // Three reference planes — just outlined squares, no inner grid
-    vector<float> gridVertices;
-    float half = 10.0f; // half of a 100-unit square
-
-    // XZ plane (y = 0)
-    gridVertices.insert(gridVertices.end(), {
-        -half, 0.0f, -half,   half, 0.0f, -half,
-        half, 0.0f, -half,   half, 0.0f,  half,
-        half, 0.0f,  half,  -half, 0.0f,  half,
-        -half, 0.0f,  half,  -half, 0.0f, -half
-    });
-
-    // XY plane (z = 0)
-    gridVertices.insert(gridVertices.end(), {
-        -half, -half, 0.0f,   half, -half, 0.0f,
-        half, -half, 0.0f,   half,  half, 0.0f,
-        half,  half, 0.0f,  -half,  half, 0.0f,
-        -half,  half, 0.0f,  -half, -half, 0.0f
-    });
-
-    // YZ plane (x = 0)
-    gridVertices.insert(gridVertices.end(), {
-        0.0f, -half, -half,   0.0f,  half, -half,
-        0.0f,  half, -half,   0.0f,  half,  half,
-        0.0f,  half,  half,   0.0f, -half,  half,
-        0.0f, -half,  half,   0.0f, -half, -half
-    });
-
-    GLuint gridVAO, gridVBO;
+    // Three reference planes — fine grid, sized relative to n
     glGenVertexArrays(1, &gridVAO);
     glGenBuffers(1, &gridVBO);
     glBindVertexArray(gridVAO);
     glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
+    gridVertices = createPlaneVertices(planeHalf, planeDivisions);
     glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
@@ -429,6 +438,7 @@ int main() {
         if (changed) {
             cout << "State updated: n=" << n << " l=" << l << " m=" << m << "\n";
             generateParticles(N_particles);
+            rebuildGrid();
         }
     });
 
@@ -450,7 +460,7 @@ int main() {
         glUseProgram(lineProgram);
         glUniformMatrix4fv(lViewLoc, 1, GL_FALSE, value_ptr(view));
         glUniformMatrix4fv(lProjLoc, 1, GL_FALSE, value_ptr(projection));
-        glUniform4f(lColLoc, 1.0f, 1.0f, 1.0f, 0.9f);
+        glUniform4f(lColLoc, 0.35f, 0.4f, 0.45f, 0.10f);
         glBindVertexArray(gridVAO);
         glDrawArrays(GL_LINES, 0, (GLsizei)gridVertices.size() / 3);
 
