@@ -49,61 +49,6 @@
 
 ***CMake + vcpkg for building and dependency management***
 
-## Building from source
-
-***This repo tracks only the source files in src/. To build it locally, create the following two files in the project root:***
-
-***vcpkg.json***
-
-***json
-{
-  "name": "atom-simulation",
-  "version": "1.0.0",
-  "dependencies": ["glfw3", "glew", "glm"]
-}***
-
-***CMakeLists.txt***
-
-**cmake**
-
-**cmake_minimum_required(VERSION 3.15)**
-
-**project(Atoms CXX)**
-
-**set(CMAKE_CXX_STANDARD 17)**
-
-**set(CMAKE_CXX_STANDARD_REQUIRED ON)**
-
-**find_package(OpenGL REQUIRED)**
-
-**find_package(GLEW REQUIRED)**
-
-**find_package(glfw3 REQUIRED)**
-
-**find_package(glm REQUIRED)**
-
-**include_directories(src ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})**
-
-**add_executable(atom_realtime src/atom_realtime.cpp)**
-
-**target_link_libraries(atom_realtime PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)**
-
-**add_executable(atom_raytracer src/atom_raytracer.cpp)**
-
-**target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)**
-
-***Then, with vcpkg installed:***
-
-**bash**
-
-**vcpkg install**
-
-**cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake**
-
-**cmake --build build**
-
-**The compiled executable will be in build/.**
-
 ## Source files
 
 **File	Description**
