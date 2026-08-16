@@ -64,32 +64,33 @@
 
 ***CMakeLists.txt***
 
-cmake
+**cmake**
 
-cmake_minimum_required(VERSION 3.15)
+**cmake_minimum_required(VERSION 3.15)**
 
-project(Atoms CXX)
+**project(Atoms CXX)**
 
-set(CMAKE_CXX_STANDARD 17)
+**set(CMAKE_CXX_STANDARD 17)**
 
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+**set(CMAKE_CXX_STANDARD_REQUIRED ON)**
 
-find_package(OpenGL REQUIRED)
+**find_package(OpenGL REQUIRED)**
 
-find_package(GLEW REQUIRED)
+**find_package(GLEW REQUIRED)**
 
-find_package(glfw3 REQUIRED)
-find_package(glm REQUIRED)
+**find_package(glfw3 REQUIRED)**
 
-include_directories(src ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})
+**find_package(glm REQUIRED)**
 
-add_executable(atom_realtime src/atom_realtime.cpp)
+**include_directories(src ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})**
 
-target_link_libraries(atom_realtime PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)
+**add_executable(atom_realtime src/atom_realtime.cpp)**
 
-add_executable(atom_raytracer src/atom_raytracer.cpp)
+**target_link_libraries(atom_realtime PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)**
 
-target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)***
+**add_executable(atom_raytracer src/atom_raytracer.cpp)**
+
+**target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)**
 
 ***Then, with vcpkg installed:***
 
