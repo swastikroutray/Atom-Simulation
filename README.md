@@ -23,15 +23,15 @@
 
 ***Key	Action***
 
-**W / S**	               Increase/decrease n (principal quantum number)
+**W / S**	               ***Increase/decrease n (principal quantum number)***
 
-**E / D**	               Increase/decrease l (azimuthal quantum number)
+**E / D**	               ***Increase/decrease l (azimuthal quantum number)***
 
-**R / F**	               Increase/decrease m (magnetic quantum number)
+**R / F**	               ***Increase/decrease m (magnetic quantum number)***
 
-**Left-click + drag**	   Orbit the camera around the atom
+**Left-click + drag**	   ***Orbit the camera around the atom***
 
-**Scroll**	             Zoom in/out
+**Scroll**	             ***Zoom in/out***
 
 **Quantum numbers are automatically clamped to valid combinations (0 ≤ l < n, -l ≤ m ≤ l).**
 
@@ -46,20 +46,20 @@
 
 ## Building from source
 
-This repo tracks only the source files in src/. To build it locally, create the following two files in the project root:
+***This repo tracks only the source files in src/. To build it locally, create the following two files in the project root:***
 
 ***vcpkg.json***
 
-json
+***json
 {
   "name": "atom-simulation",
   "version": "1.0.0",
   "dependencies": ["glfw3", "glew", "glm"]
-}
+}***
 
 ***CMakeLists.txt***
 
-cmake
+***cmake
 cmake_minimum_required(VERSION 3.15)
 project(Atoms CXX)
 set(CMAKE_CXX_STANDARD 17)
@@ -72,28 +72,28 @@ include_directories(src ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})
 add_executable(atom_realtime src/atom_realtime.cpp)
 target_link_libraries(atom_realtime PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)
 add_executable(atom_raytracer src/atom_raytracer.cpp)
-target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)
+target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)***
 
 ***Then, with vcpkg installed:***
 
-bash
+**bash**
 
-vcpkg install
+**vcpkg install**
 
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake
+**cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake**
 
-cmake --build build
+**cmake --build build**
 
-The compiled executable will be in build/.
+**The compiled executable will be in build/.**
 
 ## Source files
 
 **File	Description**
 
-src/atom_realtime.cpp	Real-time 3D orbital visualizer with orbit camera and reference planes
+***src/atom_realtime.cpp	Real-time 3D orbital visualizer with orbit camera and reference planes***
 
-src/atom_raytracer.cpp	Raytraced rendering of the orbital
+***src/atom_raytracer.cpp	Raytraced rendering of the orbital***
 
-src/atom.cpp	2D Bohr model visualization
+***src/atom.cpp	2D Bohr model visualization***
 
-src/wave_atom.cpp	2D electron wave visualization
+***src/wave_atom.cpp	2D electron wave visualization***
