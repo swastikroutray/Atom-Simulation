@@ -7,31 +7,31 @@
 
 ## How it works
 
-The visualizer solves the hydrogen atom's wavefunction and samples particle positions from the resulting probability density:
+***The visualizer solves the hydrogen atom's wavefunction and samples particle positions from the resulting probability density:***
 
-**i) Radial distribution** — computed from the Associated Laguerre polynomials, sampled via a cumulative distribution function (CDF)
+**i) Radial distribution** — ***computed from the Associated Laguerre polynomials, sampled via a cumulative distribution function (CDF)***
 
-**ii) Angular distribution** — computed from the Associated Legendre polynomials (spherical harmonics), also sampled via CDF
+**ii) Angular distribution** — ***computed from the Associated Legendre polynomials (spherical harmonics), also sampled via CDF***
 
-**iii) Particle** - Each particle is colored by local probability density using a heatmap gradient
+**iii) Particle** - ***Each particle is colored by local probability density using a heatmap gradient***
 
-**iv) Plane** - Three reference planes (XY, XZ, YZ) are rendered around the cloud, scaling automatically with the size of the orbital
+**iv) Plane** - ***Three reference planes (XY, XZ, YZ) are rendered around the cloud, scaling automatically with the size of the orbital***
 
-Every time the quantum numbers change, the probability distributions are recalculated, and a fresh set of particles is sampled; so the shape you see is always mathematically accurate for the current n, l, m.
+***Every time the quantum numbers change, the probability distributions are recalculated, and a fresh set of particles is sampled; so the shape you see is always mathematically accurate for the current n, l, m.***
 
 ## Controls
 
 ***Key	Action***
 
-**W / S**	             Increase/decrease n (principal quantum number)
+**W / S**	               Increase/decrease n (principal quantum number)
 
-**E / D**	             Increase/decrease l (azimuthal quantum number)
+**E / D**	               Increase/decrease l (azimuthal quantum number)
 
-**R / F**	             Increase/decrease m (magnetic quantum number)
+**R / F**	               Increase/decrease m (magnetic quantum number)
 
-**Left-click + drag**	 Orbit the camera around the atom
+**Left-click + drag**	   Orbit the camera around the atom
 
-**Scroll**	           Zoom in / out
+**Scroll**	             Zoom in/out
 
 **Quantum numbers are automatically clamped to valid combinations (0 ≤ l < n, -l ≤ m ≤ l).**
 
@@ -62,20 +62,15 @@ json
 cmake
 cmake_minimum_required(VERSION 3.15)
 project(Atoms CXX)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
-
 include_directories(src ${OPENGL_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})
-
 add_executable(atom_realtime src/atom_realtime.cpp)
 target_link_libraries(atom_realtime PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)
-
 add_executable(atom_raytracer src/atom_raytracer.cpp)
 target_link_libraries(atom_raytracer PRIVATE OpenGL::GL GLEW::GLEW glfw glm::glm)
 
